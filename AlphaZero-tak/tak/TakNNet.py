@@ -10,19 +10,19 @@ import numpy as np
 import torch
 import torch.optim as optim
 
-from pytorch.NNet import TakNNet as TakNNetModel
-from pytorch.NNet import dotdict
+from .pytorch.NNet import TakNNet as TakNNetModel
+from .pytorch.NNet import dotdict
 
 sys.path.append('..')
 
 args = dotdict({
     'lr': 0.001,
     'dropout': 0.3,
-    'epochs': 10,
+    'epochs': 5,
     'batch_size': 64,
     'cuda': torch.cuda.is_available(),
-    'num_channels': 128,
-    'num_res_blocks': 4,
+    'num_channels': 64,
+    'num_res_blocks': 2,
 })
 
 

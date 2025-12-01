@@ -16,12 +16,12 @@ coloredlogs.install(level='INFO')  # Change this to DEBUG to see more info.
 
 # Training parameters
 args = dotdict({
-    'numIters': 100,                # Number of training iterations
-    'numEps': 50,                   # Number of games per iteration (episodes)
+    'numIters': 20,                # Number of training iterations
+    'numEps': 25,                   # Number of games per iteration (episodes)
     'tempThreshold': 15,            # Moves before switching to deterministic play
     'updateThreshold': 0.55,        # Threshold to accept new model
     'maxlenOfQueue': 20000,         # Max training examples to keep
-    'numMCTSSims': 25,              # Number of MCTS simulations per move
+    'numMCTSSims': 10,              # Number of MCTS simulations per move
     'arenaCompare': 20,             # Number of games to play when comparing models
     'cpuct': 1,                     # MCTS exploration constant
 
@@ -33,7 +33,7 @@ args = dotdict({
 
 def main():
     log.info('Loading Tak Game...')
-    g = Game(3)  # Start with 3x3 for faster training!
+    g = Game(5)  # Start with 3x3 for faster training!
 
     log.info('Loading Neural Network...')
     nnet = nn(g)

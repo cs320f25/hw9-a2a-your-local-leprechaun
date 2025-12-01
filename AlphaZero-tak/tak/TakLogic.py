@@ -6,10 +6,6 @@ Uses numpy arrays for board representation compatible with neural networks
 import numpy as np
 import sys
 sys.path.append('..')
-from game import Game
-from flatStone import FlatStone
-from standingStone import StandingStone
-from capstone import Capstone
 
 class TakLogic:
     """

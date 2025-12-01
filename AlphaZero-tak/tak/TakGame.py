@@ -95,21 +95,35 @@ class TakGame:
     def getInitBoard(self):
         """
         Returns:
-            board: Initial board state (height, n, n) numpy array
-        """
-        # Board is (height, n, n) with all zeros
-        board = np.zeros((self.n, self.n, self.n), dtype=np.int8)
+            board: Initial board state with piece counts encoded
 
-        # Encode piece counts and move number in extra channels for neural network
-        # For now, just return the board; piece counts will be tracked separately
+        Board structure (depth, n, n):
+        - Layers 0 to n-1: The actual game board (height levels)
+        - Layer n: Player 1 (white) remaining flats (normalized 0-1)
+        - Layer n+1: Player 1 remaining capstones (0 or 1)
+        - Layer n+2: Player 2 (black) remaining flats (normalized 0-1)
+        - Layer n+3: Player 2 remaining capstones (0 or 1)
+        """
+        # Board has n layers for game state + 4 layers for piece counts
+        board = np.zeros((self.n + 4, self.n, self.n), dtype=np.float32)
+
+        # Initialize piece counts in extra layers (fill entire layer with same value)
+        # Normalize flats to 0-1 range
+        max_flats = self.standard_pieces['flats']
+        board[self.n, :, :] = max_flats / max_flats  # Player 1 flats (1.0)
+        board[self.n + 1, :, :] = self.standard_pieces['capstones']  # Player 1 capstones
+        board[self.n + 2, :, :] = max_flats / max_flats  # Player 2 flats (1.0)
+        board[self.n + 3, :, :] = self.standard_pieces['capstones']  # Player 2 capstones
+
         return board
 
     def getBoardSize(self):
         """
         Returns:
-            (height, n, n): board dimensions for neural network
+            (depth, n, n): board dimensions for neural network
+            depth = n (game layers) + 4 (piece count layers)
         """
-        return (self.n, self.n, self.n)
+        return (self.n + 4, self.n, self.n)
 
     def getActionSize(self):
         """
@@ -123,7 +137,7 @@ class TakGame:
         Apply action and return new state.
 
         Args:
-            board: Current board state
+            board: Current board state (includes piece counts in extra layers)
             player: 1 or -1
             action: Integer action index
 
@@ -134,9 +148,6 @@ class TakGame:
         new_board = np.copy(board)
 
         # Decode and apply action
-        # For now, implement basic placement logic
-        # TODO: Implement full action decoding and application
-
         if action < self.num_placement_actions:
             # Placement action
             piece_type_idx = action // (self.n * self.n)
@@ -144,7 +155,7 @@ class TakGame:
             row = pos // self.n
             col = pos % self.n
 
-            # Find first empty height level
+            # Find first empty height level (only check game layers)
             height = self._get_stack_height(new_board, row, col)
 
             if height < self.n:
@@ -155,6 +166,22 @@ class TakGame:
                 # Encode piece value
                 value = self._piece_to_value(piece_type, player)
                 new_board[height, row, col] = value
+
+                # Decrement piece count in the appropriate layer
+                max_flats = self.standard_pieces['flats']
+                if player == 1:
+                    if piece_type == 'capstone':
+                        new_board[self.n + 1, :, :] -= 1
+                    else:
+                        # Decrement and normalize flats
+                        current_flats = new_board[self.n, 0, 0] * max_flats
+                        new_board[self.n, :, :] = (current_flats - 1) / max_flats
+                else:  # player == -1
+                    if piece_type == 'capstone':
+                        new_board[self.n + 3, :, :] -= 1
+                    else:
+                        current_flats = new_board[self.n + 2, 0, 0] * max_flats
+                        new_board[self.n + 2, :, :] = (current_flats - 1) / max_flats
 
         else:
             # Movement action
@@ -168,14 +195,35 @@ class TakGame:
         Returns:
             valid_moves: Binary numpy array of shape (action_size,)
                         where 1 = valid move, 0 = invalid
+
+        Enforces piece count limits and placement rules.
         """
         valid = np.zeros(self.action_size, dtype=np.int8)
 
-        # TODO: Implement full move validation
-        # For now, mark all placements on empty squares as valid
+        # Get remaining pieces for current player
+        max_flats = self.standard_pieces['flats']
+        if player == 1:
+            remaining_flats = board[self.n, 0, 0] * max_flats
+            remaining_capstones = board[self.n + 1, 0, 0]
+        else:
+            remaining_flats = board[self.n + 2, 0, 0] * max_flats
+            remaining_capstones = board[self.n + 3, 0, 0]
 
         # Check placement actions
         for piece_type_idx in range(3):
+            piece_types = ['flat', 'standing', 'capstone']
+            piece_type = piece_types[piece_type_idx]
+
+            # Check if player has this piece type available
+            has_piece = False
+            if piece_type in ['flat', 'standing']:
+                has_piece = remaining_flats > 0
+            elif piece_type == 'capstone':
+                has_piece = remaining_capstones > 0
+
+            if not has_piece:
+                continue  # Skip this piece type
+
             for row in range(self.n):
                 for col in range(self.n):
                     height = self._get_stack_height(board, row, col)
@@ -222,27 +270,38 @@ class TakGame:
         Return board from perspective of player.
 
         For player -1, flip the board representation so it appears as if they are player 1.
+        This includes swapping piece ownership AND piece count layers.
         """
         if player == 1:
             return board
         else:
-            # Flip piece ownership
+            # Flip piece ownership in game layers
             canonical = np.copy(board)
-            # Swap white pieces (1,3,5) with black pieces (2,4,6)
-            mask_white_flat = (canonical == 1)
-            mask_black_flat = (canonical == 2)
-            canonical[mask_white_flat] = 2
-            canonical[mask_black_flat] = 1
 
-            mask_white_standing = (canonical == 3)
-            mask_black_standing = (canonical == 4)
-            canonical[mask_white_standing] = 4
-            canonical[mask_black_standing] = 3
+            # Swap white pieces (1,3,5) with black pieces (2,4,6) in game layers
+            for h in range(self.n):
+                mask_white_flat = (canonical[h] == 1)
+                mask_black_flat = (canonical[h] == 2)
+                canonical[h][mask_white_flat] = 2
+                canonical[h][mask_black_flat] = 1
 
-            mask_white_cap = (canonical == 5)
-            mask_black_cap = (canonical == 6)
-            canonical[mask_white_cap] = 6
-            canonical[mask_black_cap] = 5
+                mask_white_standing = (canonical[h] == 3)
+                mask_black_standing = (canonical[h] == 4)
+                canonical[h][mask_white_standing] = 4
+                canonical[h][mask_black_standing] = 3
+
+                mask_white_cap = (canonical[h] == 5)
+                mask_black_cap = (canonical[h] == 6)
+                canonical[h][mask_white_cap] = 6
+                canonical[h][mask_black_cap] = 5
+
+            # Swap piece count layers (player 1 <-> player 2)
+            temp_flats = canonical[self.n].copy()
+            temp_caps = canonical[self.n + 1].copy()
+            canonical[self.n] = canonical[self.n + 2]
+            canonical[self.n + 1] = canonical[self.n + 3]
+            canonical[self.n + 2] = temp_flats
+            canonical[self.n + 3] = temp_caps
 
             return canonical
 
@@ -373,7 +432,20 @@ class TakGame:
         return count
 
     def display(self, board):
-        """Display board in human-readable format."""
+        """Display board in human-readable format with piece counts."""
+        # Display piece counts
+        max_flats = self.standard_pieces['flats']
+        white_flats = int(board[self.n, 0, 0] * max_flats)
+        white_caps = int(board[self.n + 1, 0, 0])
+        black_flats = int(board[self.n + 2, 0, 0] * max_flats)
+        black_caps = int(board[self.n + 3, 0, 0])
+
+        print("\n" + "="*40)
+        print(f"White (w): {white_flats} flats, {white_caps} capstone(s)")
+        print(f"Black (b): {black_flats} flats, {black_caps} capstone(s)")
+        print("="*40)
+
+        # Display board
         print("\n   ", end="")
         for i in range(self.n):
             print(f" {i}  ", end="")
