@@ -34,7 +34,9 @@ class NNetWrapper:
 
     def __init__(self, game):
         self.game = game
-        self.board_x, self.board_y, self.board_z = game.getBoardSize()
+        # getBoardSize returns (depth, height, width) = (9, 5, 5) for 5x5 board
+        # For PyTorch Conv2d, we need (batch, channels, height, width)
+        self.board_channels, self.board_height, self.board_width = game.getBoardSize()
         self.action_size = game.getActionSize()
 
         # Initialize neural network
@@ -120,7 +122,7 @@ class NNetWrapper:
         board = torch.FloatTensor(board.astype(np.float64))
         if args.cuda:
             board = board.cuda()
-        board = board.view(1, self.board_z, self.board_x, self.board_y)
+        board = board.view(1, self.board_channels, self.board_height, self.board_width)
 
         # Forward pass
         with torch.no_grad():

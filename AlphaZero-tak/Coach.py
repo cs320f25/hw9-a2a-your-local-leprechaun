@@ -49,6 +49,7 @@ class Coach():
         board = self.game.getInitBoard()
         self.curPlayer = 1
         episodeStep = 0
+        max_moves = 600  # Maximum moves per game to prevent infinite loops
 
         while True:
             episodeStep += 1
@@ -66,7 +67,17 @@ class Coach():
             r = self.game.getGameEnded(board, self.curPlayer)
 
             if r != 0:
-                return [(x[0], x[2], r * ((-1) ** (x[1] != self.curPlayer))) for x in trainExamples]
+                # Apply move penalty: shorter games get higher rewards
+                # Win at move 60 (10%) gets ~0.97, at move 300 (50%) gets ~0.85, at move 600 gets ~0.70
+                move_penalty = 1.0 - 0.3 * (episodeStep / max_moves)
+                scaled_reward = r * move_penalty
+                return [(x[0], x[2], scaled_reward * ((-1) ** (x[1] != self.curPlayer))) for x in trainExamples]
+
+            # Force draw if game goes too long
+            if episodeStep >= max_moves:
+                log.warning(f"Game exceeded {max_moves} moves, forcing draw")
+                # Make draws negative to discourage them
+                return [(x[0], x[2], -0.2) for x in trainExamples]
 
     def learn(self):
         """

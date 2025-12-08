@@ -16,7 +16,7 @@ coloredlogs.install(level='INFO')  # Change this to DEBUG to see more info.
 
 # Training parameters
 args = dotdict({
-    'numIters': 20,                # Number of training iterations
+    'numIters': 100,                # Number of training iterations (overnight training)
     'numEps': 25,                   # Number of games per iteration (episodes)
     'tempThreshold': 15,            # Moves before switching to deterministic play
     'updateThreshold': 0.55,        # Threshold to accept new model
@@ -26,7 +26,7 @@ args = dotdict({
     'cpuct': 1,                     # MCTS exploration constant
 
     'checkpoint': './temp/',        # Checkpoint directory
-    'load_model': False,            # Load existing model
+    'load_model': True,             # Load existing model (continue training)
     'load_folder_file': ('./temp/','best.pth.tar'),  # Model to load
     'numItersForTrainExamplesHistory': 20,  # Training history to keep
 })

@@ -163,8 +163,23 @@ class TakGame:
                 piece_types = ['flat', 'standing', 'capstone']
                 piece_type = piece_types[piece_type_idx]
 
-                # Encode piece value
-                value = self._piece_to_value(piece_type, player)
+                # Check if this is an opening move (first 2 pieces)
+                # Count total pieces on board
+                total_pieces = 0
+                for r in range(self.n):
+                    for c in range(self.n):
+                        if self._get_stack_height(new_board, r, c) > 0:
+                            total_pieces += 1
+
+                is_opening_move = total_pieces < 2
+
+                # For opening moves, place opponent's piece (only flats allowed)
+                if is_opening_move:
+                    piece_type = 'flat'  # Opening moves must be flats
+                    value = self._piece_to_value(piece_type, -player)  # Opponent's piece
+                else:
+                    # Normal move: place own piece
+                    value = self._piece_to_value(piece_type, player)
                 new_board[height, row, col] = value
 
                 # Decrement piece count in the appropriate layer
@@ -185,10 +200,190 @@ class TakGame:
 
         else:
             # Movement action
-            # TODO: Implement movement logic
-            pass
+            action_offset = action - self.num_placement_actions
+
+            # Decode movement action
+            # Format: position + direction*n² + pattern_idx*4*n²
+            n = self.n
+            pattern_idx = action_offset // (4 * n * n)
+            remainder = action_offset % (4 * n * n)
+            direction = remainder // (n * n)
+            position = remainder % (n * n)
+
+            start_row = position // n
+            start_col = position % n
+
+            # Validate pattern index
+            if pattern_idx >= len(self.movement_patterns):
+                return new_board, -player  # Invalid action
+
+            pickup_count, drop_pattern = self.movement_patterns[pattern_idx]
+
+            # Get direction vector
+            direction_vectors = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # up, down, left, right
+            dr, dc = direction_vectors[direction]
+
+            # Pick up pieces from starting stack
+            start_height = self._get_stack_height(new_board, start_row, start_col)
+
+            # Validate pickup
+            if start_height < pickup_count:
+                return new_board, -player  # Can't pick up more than stack height
+
+            # Check if player controls the top piece
+            if start_height > 0:
+                top_piece = new_board[start_height - 1, start_row, start_col]
+                top_player, _ = self._value_to_piece(top_piece)
+                if top_player != player:
+                    return new_board, -player  # Can't move opponent's stack
+
+            # Pick up pieces (from top of stack)
+            carried_pieces = []
+            for i in range(pickup_count):
+                height_idx = start_height - pickup_count + i
+                if height_idx >= 0 and height_idx < self.n:
+                    carried_pieces.append(new_board[height_idx, start_row, start_col])
+                    new_board[height_idx, start_row, start_col] = 0
+
+            # Move and drop pieces according to pattern
+            current_row, current_col = start_row, start_col
+            carried_idx = 0
+
+            for drop_count in drop_pattern:
+                # Move to next square
+                current_row += dr
+                current_col += dc
+
+                # Check bounds
+                if current_row < 0 or current_row >= n or current_col < 0 or current_col >= n:
+                    # Invalid move - restore board and return
+                    return np.copy(board), -player
+
+                # Check if we can drop here
+                target_height = self._get_stack_height(new_board, current_row, current_col)
+
+                if target_height > 0:
+                    # Check top piece of target square
+                    top_piece = new_board[target_height - 1, current_row, current_col]
+                    top_player, top_type = self._value_to_piece(top_piece)
+
+                    # Check if move is blocked
+                    # Can't move onto capstones
+                    if top_type == 'capstone':
+                        return np.copy(board), -player
+
+                    # Can't move onto standing stones unless we're a capstone
+                    if top_type == 'standing':
+                        # Check if we're moving with a capstone on top
+                        # The last piece we're dropping is the top of our stack
+                        is_last_drop = (drop_count == drop_pattern[-1] and
+                                      carried_idx + drop_count == len(carried_pieces))
+
+                        if is_last_drop:
+                            # Check if top carried piece is a capstone
+                            top_carried = carried_pieces[carried_idx + drop_count - 1]
+                            _, carried_type = self._value_to_piece(top_carried)
+
+                            if carried_type == 'capstone':
+                                # Flatten the standing stone
+                                player_color = top_player
+                                new_board[target_height - 1, current_row, current_col] = \
+                                    self._piece_to_value('flat', player_color)
+                            else:
+                                # Can't move onto standing stone
+                                return np.copy(board), -player
+                        else:
+                            # Not the last drop, can't move onto standing stone
+                            return np.copy(board), -player
+
+                # Drop pieces
+                for i in range(drop_count):
+                    if carried_idx < len(carried_pieces):
+                        drop_height = self._get_stack_height(new_board, current_row, current_col)
+                        if drop_height < n:
+                            new_board[drop_height, current_row, current_col] = carried_pieces[carried_idx]
+                            carried_idx += 1
 
         return new_board, -player
+
+    def _is_valid_movement(self, board, start_row, start_col, direction, pickup_count, drop_pattern):
+        """
+        Check if a movement is valid.
+
+        Args:
+            board: Current board state
+            start_row, start_col: Starting position
+            direction: 0=up, 1=down, 2=left, 3=right
+            pickup_count: Number of pieces to pick up
+            drop_pattern: List of drop counts (e.g., [2, 1])
+
+        Returns:
+            bool: True if movement is valid
+        """
+        n = self.n
+        direction_vectors = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        dr, dc = direction_vectors[direction]
+
+        # Get the pieces we're carrying
+        start_height = self._get_stack_height(board, start_row, start_col)
+        carried_pieces = []
+        for i in range(pickup_count):
+            height_idx = start_height - pickup_count + i
+            if height_idx >= 0 and height_idx < n:
+                carried_pieces.append(board[height_idx, start_row, start_col])
+
+        # Simulate the movement
+        current_row, current_col = start_row, start_col
+        carried_idx = 0
+
+        for drop_idx, drop_count in enumerate(drop_pattern):
+            # Move to next square
+            current_row += dr
+            current_col += dc
+
+            # Check bounds
+            if current_row < 0 or current_row >= n or current_col < 0 or current_col >= n:
+                return False  # Would go off board
+
+            # Check if we can drop here
+            target_height = self._get_stack_height(board, current_row, current_col)
+
+            if target_height > 0:
+                # Check top piece of target square
+                top_piece = board[target_height - 1, current_row, current_col]
+                _, top_type = self._value_to_piece(top_piece)
+
+                # Can't move onto capstones
+                if top_type == 'capstone':
+                    return False
+
+                # Can't move onto standing stones unless we're a capstone
+                if top_type == 'standing':
+                    # Check if we're moving with a capstone on top of our stack
+                    # The piece that will end up on top is the last one we're dropping
+                    is_last_drop = (drop_idx == len(drop_pattern) - 1)
+
+                    if is_last_drop and carried_idx + drop_count <= len(carried_pieces):
+                        # Check if the top carried piece is a capstone
+                        top_carried = carried_pieces[carried_idx + drop_count - 1]
+                        _, carried_type = self._value_to_piece(top_carried)
+
+                        if carried_type != 'capstone':
+                            return False  # Can't flatten wall without capstone
+                    else:
+                        return False  # Not the last drop, can't move onto wall
+
+            # Check if we have enough pieces to drop
+            if carried_idx + drop_count > len(carried_pieces):
+                return False
+
+            carried_idx += drop_count
+
+        # Make sure we dropped all pieces
+        if carried_idx != len(carried_pieces):
+            return False
+
+        return True
 
     def getValidMoves(self, board, player):
         """
@@ -215,11 +410,12 @@ class TakGame:
             piece_type = piece_types[piece_type_idx]
 
             # Check if player has this piece type available
+            # Use >= 1.0 to avoid floating point precision issues
             has_piece = False
             if piece_type in ['flat', 'standing']:
-                has_piece = remaining_flats > 0
+                has_piece = remaining_flats >= 1.0
             elif piece_type == 'capstone':
-                has_piece = remaining_capstones > 0
+                has_piece = remaining_capstones >= 0.5
 
             if not has_piece:
                 continue  # Skip this piece type
@@ -230,6 +426,50 @@ class TakGame:
                     if height == 0:  # Empty square
                         action = row * self.n + col + piece_type_idx * self.n * self.n
                         valid[action] = 1
+
+        # Check movement actions
+        # This is computationally expensive but necessary for proper gameplay
+        for action_offset in range(self.num_movement_actions):
+            action = self.num_placement_actions + action_offset
+
+            # Decode movement action
+            n = self.n
+            pattern_idx = action_offset // (4 * n * n)
+            remainder = action_offset % (4 * n * n)
+            direction = remainder // (n * n)
+            position = remainder % (n * n)
+
+            start_row = position // n
+            start_col = position % n
+
+            # Validate pattern index
+            if pattern_idx >= len(self.movement_patterns):
+                continue
+
+            pickup_count, drop_pattern = self.movement_patterns[pattern_idx]
+
+            # Check if there's a stack at this position
+            start_height = self._get_stack_height(board, start_row, start_col)
+            if start_height == 0:
+                continue  # No pieces to move
+
+            # Check if we can pick up this many pieces
+            if pickup_count > start_height:
+                continue
+
+            # In Tak, carry limit is the board size (can't pick up more than n pieces)
+            if pickup_count > n:
+                continue
+
+            # Check if player controls the top piece
+            top_piece = board[start_height - 1, start_row, start_col]
+            top_player, _ = self._value_to_piece(top_piece)
+            if top_player != player:
+                continue  # Can't move opponent's stack
+
+            # Validate the movement path
+            if self._is_valid_movement(board, start_row, start_col, direction, pickup_count, drop_pattern):
+                valid[action] = 1
 
         return valid
 

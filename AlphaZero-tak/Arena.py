@@ -41,6 +41,7 @@ class Arena():
         curPlayer = 1
         board = self.game.getInitBoard()
         it = 0
+        max_moves = 600  # Maximum moves per game
 
         for player in players[0], players[2]:
             if hasattr(player, "startGame"):
@@ -48,6 +49,12 @@ class Arena():
 
         while self.game.getGameEnded(board, curPlayer) == 0:
             it += 1
+
+            # Force draw if game goes too long
+            if it >= max_moves:
+                log.warning(f"Game exceeded {max_moves} moves, forcing draw")
+                return 0.0001  # Small value to indicate draw
+
             if verbose:
                 assert self.display
                 print("Turn ", str(it), "Player ", str(curPlayer))
