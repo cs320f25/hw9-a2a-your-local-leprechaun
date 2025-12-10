@@ -254,13 +254,13 @@ Your specific rules:
 3. Be explicit and concrete:
    - Mention specific files, directories, and modules where work has been done.
    - Mention recent commit messages and what they imply about current progress.
-   - If something is unclear or missing, say what’s missing and what you’d expect to see.
+   - If something is unclear or missing, say what's missing and what you'd expect to see.
 
 4. Style:
    - Write 2–4 short paragraphs.
    - Be honest about what you can and cannot see from the repo.
    - Do not try to guess beyond what the repo and its issues show.
-   
+
 When analyzing a repository:
 - Start by getting basic repo information to understand the project
 - Check recent commits to see development velocity
@@ -276,7 +276,14 @@ Provide clear, well-organized reports that help users understand:
 
 If the request is not clearly for takbot-status, you must stay silent and not answer.
 """,
-    tools=[],
+    tools=[
+        get_repo_info,
+        get_recent_commits,
+        get_open_issues,
+        get_pull_requests,
+        get_project_structure,
+        read_file,
+    ],
 )
 
 app = App(root_agent=root_agent, name="app")
