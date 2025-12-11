@@ -1,0 +1,5 @@
+# Core dependencies for AlphaZero-Tak
+numpy>=1.21.0
+torch>=2.0.0
+tqdm>=4.64.0
+coloredlogs>=15.0.1
